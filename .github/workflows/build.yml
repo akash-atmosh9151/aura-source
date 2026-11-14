@@ -1,0 +1,62 @@
+name: Build Aura APK
+
+# Runs on every push, and can be started by hand from the Actions tab.
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Works whether the repo holds the project files directly,
+      # or just the single aura-source.zip (easiest to upload from a phone).
+      - name: Locate project
+        run: |
+          if [ -f settings.gradle.kts ]; then
+            echo "PROJECT_DIR=." >> "$GITHUB_ENV"
+          elif [ -f aura-source.zip ]; then
+            mkdir -p _aura
+            unzip -q aura-source.zip -d _aura
+            echo "PROJECT_DIR=_aura" >> "$GITHUB_ENV"
+          else
+            echo "Could not find settings.gradle.kts or aura-source.zip in the repo root."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build release APK
+        run: gradle -p "$PROJECT_DIR" assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APK
+        run: |
+          mkdir -p dist
+          cp "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk" dist/Aura.apk
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Aura-APK
+          path: dist/Aura.apk
+
+      # A release gives you a direct, tappable download link for the .apk
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: aura-build-${{ github.run_number }}
+          name: Aura build ${{ github.run_number }}
+          files: dist/Aura.apk
